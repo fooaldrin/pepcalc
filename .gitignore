@@ -1,0 +1,15 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.DS_Store
+push_gh.sh
+asc_*.py
+check_urls.py
+set_age.py

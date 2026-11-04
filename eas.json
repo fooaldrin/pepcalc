@@ -1,0 +1,30 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "thomas@thomasaldrin.com",
+        "ascAppId": "6830870340",
+        "appleTeamId": "74XR834VF4"
+      },
+      "android": {
+        "track": "production"
+      }
+    }
+  }
+}
