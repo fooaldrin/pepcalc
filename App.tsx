@@ -19,6 +19,8 @@ import {
   SavedProtocol,
   calculateReconstitution,
   calculateBlendReconstitution,
+  parseLocaleNumber,
+  roundClean,
 } from './src/utils/reconstitutionMath';
 import { SyringeVisualizer } from './src/components/SyringeVisualizer';
 import { PaywallModal, PlanTier } from './src/components/PaywallModal';
@@ -119,9 +121,9 @@ export default function App() {
 
   const calcResult = useMemo(() => {
     return calculateReconstitution({
-      vialMassMg: parseFloat(vialMassStr) || 0,
-      diluentVolumeMl: parseFloat(diluentVolumeStr) || 0,
-      targetDose: parseFloat(targetDoseStr) || 0,
+      vialMassMg: parseLocaleNumber(vialMassStr),
+      diluentVolumeMl: parseLocaleNumber(diluentVolumeStr),
+      targetDose: parseLocaleNumber(targetDoseStr),
       targetDoseUnit,
       syringeScale: selectedSyringe.scale,
       syringeVolumeMl: selectedSyringe.volumeMl,
@@ -136,10 +138,10 @@ export default function App() {
 
   const blendResult = useMemo(() => {
     return calculateBlendReconstitution(
-      parseFloat(blendPrimaryMgStr) || 0,
-      parseFloat(blendSecondaryMgStr) || 0,
-      parseFloat(blendDiluentMlStr) || 0,
-      parseFloat(blendTargetMcgStr) || 0,
+      parseLocaleNumber(blendPrimaryMgStr),
+      parseLocaleNumber(blendSecondaryMgStr),
+      parseLocaleNumber(blendDiluentMlStr),
+      parseLocaleNumber(blendTargetMcgStr),
       selectedSyringe.scale,
       selectedSyringe.volumeMl
     );
@@ -168,33 +170,62 @@ export default function App() {
     );
   };
 
+  const handleRestorePurchases = async () => {
+    const restored = await restoreUserPurchases();
+    if (restored) {
+      setIsPro(true);
+      setPaywallVisible(false);
+      await AsyncStorage.setItem(STORAGE_KEYS.IS_PRO, 'true');
+      Alert.alert(
+        'Purchases Restored',
+        'Your PepCalc Pro Lab entitlement has been restored.'
+      );
+    } else {
+      Alert.alert(
+        'No Active Purchases Found',
+        'No previous PepCalc Pro Lab purchases were found for this account.'
+      );
+    }
+  };
+
   const handleAcceptDisclaimer = async () => {
     setDisclaimerAccepted(true);
     await AsyncStorage.setItem(STORAGE_KEYS.DISCLAIMER_ACCEPTED, 'true');
   };
 
   const handleSaveCurrentProtocol = async () => {
+    if (!calcResult.isValidInput || calcResult.targetDoseMcg <= 0) {
+      Alert.alert(
+        'Invalid Protocol',
+        'Please enter a valid Vial Mass (mg), Diluent Volume (mL), and Target Draw before saving.'
+      );
+      return;
+    }
+
     if (!isPro && protocols.length >= 1) {
       openPaywall('Unlimited Vial Fridge Inventory');
       return;
     }
 
+    const vialMg = parseLocaleNumber(vialMassStr);
+    const diluentMl = parseLocaleNumber(diluentVolumeStr);
+    const targetDose = parseLocaleNumber(targetDoseStr);
+
     const label =
-      newProtocolLabel.trim() ||
-      `Sample (${vialMassStr}mg in ${diluentVolumeStr}mL)`;
+      newProtocolLabel.trim() || `Sample (${vialMg}mg in ${diluentMl}mL)`;
     const todayISO = new Date().toISOString().slice(0, 10);
     const newEntry: SavedProtocol = {
       id: Date.now().toString(),
       label,
       input: {
-        vialMassMg: parseFloat(vialMassStr) || 5,
-        diluentVolumeMl: parseFloat(diluentVolumeStr) || 2,
-        targetDose: parseFloat(targetDoseStr) || 250,
+        vialMassMg: vialMg,
+        diluentVolumeMl: diluentMl,
+        targetDose,
         targetDoseUnit,
         syringeScale: selectedSyringe.scale,
         syringeVolumeMl: selectedSyringe.volumeMl,
       },
-      remainingVolumeMl: parseFloat(diluentVolumeStr) || 2,
+      remainingVolumeMl: diluentMl,
       reconstitutedDateISO: todayISO,
       expirationDays: 28,
     };
@@ -212,7 +243,7 @@ export default function App() {
       const res = calculateReconstitution(p.input);
       const nextRemaining = Math.max(
         0,
-        Math.round((p.remainingVolumeMl - res.volumeToDrawMl) * 1000) / 1000
+        roundClean(p.remainingVolumeMl - res.volumeToDrawMl, 4)
       );
       return { ...p, remainingVolumeMl: nextRemaining };
     });
@@ -228,11 +259,11 @@ export default function App() {
 
   const toggleDoseUnit = (nextUnit: DoseUnit) => {
     if (nextUnit === targetDoseUnit) return;
-    const currentVal = parseFloat(targetDoseStr) || 0;
+    const currentVal = parseLocaleNumber(targetDoseStr);
     if (nextUnit === 'mg') {
-      setTargetDoseStr((currentVal / 1000).toString());
+      setTargetDoseStr(roundClean(currentVal / 1000, 6).toString());
     } else {
-      setTargetDoseStr((currentVal * 1000).toString());
+      setTargetDoseStr(roundClean(currentVal * 1000, 3).toString());
     }
     setTargetDoseUnit(nextUnit);
   };
@@ -309,6 +340,8 @@ export default function App() {
               syringeScale={selectedSyringe.scale}
               syringeVolumeMl={selectedSyringe.volumeMl}
               exceedsCapacity={calcResult.exceedsSyringeCapacity}
+              exceedsVialMass={calcResult.exceedsVialMass}
+              isValidInput={calcResult.isValidInput}
             />
 
             {/* Secondary Metrics Grid */}
@@ -388,7 +421,7 @@ export default function App() {
               </View>
               <View style={styles.chipRow}>
                 {QUICK_VIAL_MG.map((mg) => {
-                  const selected = parseFloat(vialMassStr) === mg;
+                  const selected = parseLocaleNumber(vialMassStr) === mg;
                   return (
                     <TouchableOpacity
                       key={mg}
@@ -428,7 +461,7 @@ export default function App() {
               </View>
               <View style={styles.chipRow}>
                 {QUICK_DILUENT_ML.map((ml) => {
-                  const selected = parseFloat(diluentVolumeStr) === ml;
+                  const selected = parseLocaleNumber(diluentVolumeStr) === ml;
                   return (
                     <TouchableOpacity
                       key={ml}
@@ -508,7 +541,7 @@ export default function App() {
                   ? QUICK_DOSE_MCG
                   : QUICK_DOSE_MG
                 ).map((val) => {
-                  const selected = parseFloat(targetDoseStr) === val;
+                  const selected = parseLocaleNumber(targetDoseStr) === val;
                   return (
                     <TouchableOpacity
                       key={val}
@@ -621,19 +654,21 @@ export default function App() {
                   syringeScale={selectedSyringe.scale}
                   syringeVolumeMl={selectedSyringe.volumeMl}
                   exceedsCapacity={blendResult.exceedsSyringeCapacity}
+                  exceedsVialMass={blendResult.exceedsVialMass}
+                  isValidInput={blendResult.isValidInput}
                 />
                 <Text style={styles.blendSummaryText}>
                   Drawing{' '}
                   <Text style={styles.highlightCyan}>
-                    {blendResult.syringeUnits.toFixed(1)} units
+                    {roundClean(blendResult.syringeUnits, 2)} units
                   </Text>{' '}
                   ({blendResult.volumeToDrawMl.toFixed(3)} mL) delivers{' '}
                   <Text style={styles.highlightCyan}>
-                    {blendTargetMcgStr} mcg
+                    {parseLocaleNumber(blendTargetMcgStr)} mcg
                   </Text>{' '}
                   of Compound A +{' '}
                   <Text style={styles.highlightCyan}>
-                    {Math.round(blendResult.secondaryDeliveredMcg)} mcg
+                    {roundClean(blendResult.secondaryDeliveredMcg, 1)} mcg
                   </Text>{' '}
                   of Compound B.
                 </Text>
@@ -718,10 +753,11 @@ export default function App() {
                     <Text style={styles.vialRemainingText}>
                       Remaining: {item.remainingVolumeMl.toFixed(2)} mL /{' '}
                       {item.input.diluentVolumeMl} mL (
-                      {Math.floor(
-                        item.remainingVolumeMl /
-                          Math.max(0.001, res.volumeToDrawMl)
-                      )}{' '}
+                      {res.volumeToDrawMl > 0
+                        ? Math.floor(
+                            (item.remainingVolumeMl + 1e-6) / res.volumeToDrawMl
+                          )
+                        : 0}{' '}
                       draws left)
                     </Text>
                     <TouchableOpacity
@@ -729,7 +765,7 @@ export default function App() {
                       onPress={() => handleLogDrawFromVial(item.id)}
                     >
                       <Text style={styles.logDrawBtnText}>
-                        - Log {res.syringeUnits.toFixed(1)}u Draw
+                        - Log {roundClean(res.syringeUnits, 2)}u Draw
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -757,13 +793,13 @@ export default function App() {
               <Text style={styles.tableHeaderCell}>Mass (mg)</Text>
             </View>
 
-            {[2, 5, 10, 12.5, 15, 20, 25, 30, 40, 50]
+            {[1, 2, 2.5, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 75, 100]
               .filter((u) => u <= selectedSyringe.maxUnits)
               .map((u, idx) => {
                 const lockedRow = !isPro && idx >= 4;
                 const volMl = u / (selectedSyringe.scale === 'U-40' ? 40 : 100);
-                const mcg = u * calcResult.mcgPerUnit;
-                const mg = mcg / 1000;
+                const mcg = roundClean(u * calcResult.mcgPerUnit, 1);
+                const mg = roundClean(mcg / 1000, 3);
                 return (
                   <TouchableOpacity
                     key={u}
@@ -777,10 +813,10 @@ export default function App() {
                     <Text style={styles.tableCellBold}>{u} u</Text>
                     <Text style={styles.tableCell}>{volMl.toFixed(3)} mL</Text>
                     <Text style={styles.tableCell}>
-                      {lockedRow ? '🔒 Pro' : `${Math.round(mcg)} mcg`}
+                      {lockedRow ? '🔒 Pro' : `${mcg} mcg`}
                     </Text>
                     <Text style={styles.tableCell}>
-                      {lockedRow ? '🔒 Pro' : `${mg.toFixed(2)} mg`}
+                      {lockedRow ? '🔒 Pro' : `${mg.toFixed(3)} mg`}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -830,6 +866,7 @@ export default function App() {
         visible={paywallVisible}
         onClose={() => setPaywallVisible(false)}
         onUnlockSuccess={handleUnlockSuccess}
+        onRestorePurchases={handleRestorePurchases}
         triggerFeatureName={paywallTrigger}
       />
     </SafeAreaView>

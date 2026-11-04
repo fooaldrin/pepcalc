@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ScrollView,
   Image,
+  Linking,
 } from 'react-native';
 
 export type PlanTier = 'monthly' | 'annual' | 'lifetime';
@@ -15,6 +16,7 @@ interface PaywallModalProps {
   visible: boolean;
   onClose: () => void;
   onUnlockSuccess: (tier: PlanTier) => void;
+  onRestorePurchases?: () => void;
   triggerFeatureName?: string;
 }
 
@@ -22,6 +24,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
   visible,
   onClose,
   onUnlockSuccess,
+  onRestorePurchases,
   triggerFeatureName,
 }) => {
   const [selectedTier, setSelectedTier] = useState<PlanTier>('lifetime');
@@ -195,13 +198,31 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
             </TouchableOpacity>
 
             <View style={styles.footerLinks}>
-              <TouchableOpacity onPress={() => onUnlockSuccess('lifetime')}>
+              <TouchableOpacity
+                onPress={() =>
+                  onRestorePurchases
+                    ? onRestorePurchases()
+                    : onUnlockSuccess('lifetime')
+                }
+              >
                 <Text style={styles.footerLinkText}>Restore Purchases</Text>
               </TouchableOpacity>
               <Text style={styles.footerDot}>•</Text>
-              <Text style={styles.footerLinkText}>Terms</Text>
+              <TouchableOpacity
+                onPress={() =>
+                  Linking.openURL('https://fooaldrin.github.io/pepcalc/privacy/')
+                }
+              >
+                <Text style={styles.footerLinkText}>Terms (EULA)</Text>
+              </TouchableOpacity>
               <Text style={styles.footerDot}>•</Text>
-              <Text style={styles.footerLinkText}>Privacy Policy</Text>
+              <TouchableOpacity
+                onPress={() =>
+                  Linking.openURL('https://fooaldrin.github.io/pepcalc/privacy/')
+                }
+              >
+                <Text style={styles.footerLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
         </View>

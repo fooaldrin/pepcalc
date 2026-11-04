@@ -9,7 +9,11 @@ import Svg, {
   Stop,
   Path,
 } from 'react-native-svg';
-import { SyringeScale, SyringeVolumeMl } from '../utils/reconstitutionMath';
+import {
+  SyringeScale,
+  SyringeVolumeMl,
+  roundClean,
+} from '../utils/reconstitutionMath';
 
 interface SyringeVisualizerProps {
   syringeUnits: number;
@@ -18,6 +22,24 @@ interface SyringeVisualizerProps {
   syringeScale: SyringeScale;
   syringeVolumeMl: SyringeVolumeMl;
   exceedsCapacity: boolean;
+  exceedsVialMass?: boolean;
+  isValidInput?: boolean;
+}
+
+function formatUnitsReadout(units: number): string {
+  if (!Number.isFinite(units) || units <= 0) return '0';
+  const rounded2 = roundClean(units, 2);
+  // If exact integer (e.g. 10), show 10
+  if (Math.abs(rounded2 - Math.round(rounded2)) < 1e-4) {
+    return Math.round(rounded2).toString();
+  }
+  // If 1 decimal place (e.g. 12.5), show 12.5
+  const rounded1 = roundClean(units, 1);
+  if (Math.abs(rounded2 - rounded1) < 1e-4) {
+    return rounded1.toFixed(1);
+  }
+  // Otherwise preserve 2 decimal places (e.g. 6.25 units or 1.25 units)
+  return rounded2.toFixed(2);
 }
 
 export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
@@ -27,6 +49,8 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
   syringeScale,
   syringeVolumeMl,
   exceedsCapacity,
+  exceedsVialMass = false,
+  isValidInput = true,
 }) => {
   const clampedUnits = Math.min(maxSyringeUnits, Math.max(0, syringeUnits));
   const fillRatio = maxSyringeUnits > 0 ? clampedUnits / maxSyringeUnits : 0;
@@ -51,8 +75,11 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
     ticks.push({ unit: u, isMajor, isMedium });
   }
 
-  const fillColorStart = exceedsCapacity ? '#EF4444' : '#06B6D4';
-  const fillColorEnd = exceedsCapacity ? '#DC2626' : '#3B82F6';
+  const hasWarning = exceedsCapacity || exceedsVialMass;
+  const fillColorStart = hasWarning ? '#EF4444' : '#06B6D4';
+  const fillColorEnd = hasWarning ? '#DC2626' : '#3B82F6';
+  const subUnitPrecisionWarning =
+    isValidInput && syringeUnits > 0 && syringeUnits < 1;
 
   return (
     <View style={styles.container}>
@@ -63,12 +90,10 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
             <Text
               style={[
                 styles.unitsValue,
-                exceedsCapacity && styles.unitsValueDanger,
+                hasWarning && styles.unitsValueDanger,
               ]}
             >
-              {syringeUnits < 10 && syringeUnits % 1 !== 0
-                ? syringeUnits.toFixed(1)
-                : Math.round(syringeUnits * 10) / 10}
+              {isValidInput ? formatUnitsReadout(syringeUnits) : '—'}
             </Text>
             <Text style={styles.unitsSuffix}>UNITS ({syringeScale})</Text>
           </View>
@@ -76,13 +101,17 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
         <View style={styles.volumePill}>
           <Text style={styles.volumePillLabel}>EXACT VOLUME</Text>
           <Text style={styles.volumePillValue}>
-            {volumeToDrawMl.toFixed(3)} mL
+            {isValidInput ? `${volumeToDrawMl.toFixed(3)} mL` : '— mL'}
           </Text>
         </View>
       </View>
 
       <View style={styles.svgWrapper}>
-        <Svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`}>
+        <Svg
+          width="100%"
+          height={svgHeight}
+          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+        >
           <Defs>
             <LinearGradient id="liquidGrad" x1="0" y1="0" x2="1" y2="0">
               <Stop offset="0" stopColor={fillColorStart} stopOpacity="0.88" />
@@ -107,9 +136,11 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
           />
           {/* Needle hub cone */}
           <Path
-            d={`M 28 ${barrelY + barrelHeight / 2 - 5} L ${barrelX} ${barrelY + 8} L ${barrelX} ${
-              barrelY + barrelHeight - 8
-            } L 28 ${barrelY + barrelHeight / 2 + 5} Z`}
+            d={`M 28 ${barrelY + barrelHeight / 2 - 5} L ${barrelX} ${
+              barrelY + 8
+            } L ${barrelX} ${barrelY + barrelHeight - 8} L 28 ${
+              barrelY + barrelHeight / 2 + 5
+            } Z`}
             fill="#334155"
             stroke="#64748B"
             strokeWidth={1.2}
@@ -210,26 +241,54 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
 
           {/* Target Indicator Marker Above Barrel */}
           {fillWidth > 0 && (
-            <>
-              <Path
-                d={`M ${barrelX + fillWidth} ${barrelY - 2} L ${
-                  barrelX + fillWidth - 5
-                } ${barrelY - 11} L ${barrelX + fillWidth + 5} ${
-                  barrelY - 11
-                } Z`}
-                fill={exceedsCapacity ? '#EF4444' : '#22D3EE'}
-              />
-            </>
+            <Path
+              d={`M ${barrelX + fillWidth} ${barrelY - 2} L ${
+                barrelX + fillWidth - 5
+              } ${barrelY - 11} L ${barrelX + fillWidth + 5} ${
+                barrelY - 11
+              } Z`}
+              fill={hasWarning ? '#EF4444' : '#22D3EE'}
+            />
           )}
         </Svg>
       </View>
 
-      {exceedsCapacity && (
+      {!isValidInput && (
+        <View style={styles.amberBanner}>
+          <Text style={styles.amberText}>
+            Enter a valid Vial Mass (&gt; 0 mg) and Diluent Volume (&gt; 0 mL)
+            below to calculate syringe units.
+          </Text>
+        </View>
+      )}
+
+      {isValidInput && exceedsVialMass && (
         <View style={styles.warningBanner}>
           <Text style={styles.warningText}>
-            ⚠️ Target volume ({volumeToDrawMl.toFixed(2)} mL /{' '}
-            {Math.round(syringeUnits)} units) exceeds this {syringeVolumeMl} mL
-            syringe capacity. Switch to a 1.0 mL syringe or reduce diluent volume.
+            🚨 DANGER: Target draw exceeds the entire mass of the vial! Verify
+            whether your target is in mcg (µg) or mg.
+          </Text>
+        </View>
+      )}
+
+      {isValidInput && !exceedsVialMass && exceedsCapacity && (
+        <View style={styles.warningBanner}>
+          <Text style={styles.warningText}>
+            ⚠️ Target volume ({volumeToDrawMl.toFixed(3)} mL /{' '}
+            {formatUnitsReadout(syringeUnits)} units) exceeds this{' '}
+            {syringeVolumeMl} mL ({maxSyringeUnits}u) syringe capacity. Switch
+            to a larger syringe or use less diluent.
+          </Text>
+        </View>
+      )}
+
+      {subUnitPrecisionWarning && (
+        <View style={styles.amberBanner}>
+          <Text style={styles.amberText}>
+            ⚠️ High Concentration Alert: {formatUnitsReadout(syringeUnits)}{' '}
+            units is less than 1 tick mark and is difficult to measure
+            accurately. Consider adding more diluent (mL) or using a 0.3 mL
+            (30u) syringe.
           </Text>
         </View>
       )}
@@ -314,6 +373,20 @@ const styles = StyleSheet.create({
   },
   warningText: {
     color: '#FCA5A5',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  amberBanner: {
+    marginTop: 8,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  amberText: {
+    color: '#FCD34D',
     fontSize: 12,
     fontWeight: '600',
     lineHeight: 17,

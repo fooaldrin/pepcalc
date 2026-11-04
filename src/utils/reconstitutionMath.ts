@@ -12,6 +12,7 @@ export interface ReconstitutionInput {
 }
 
 export interface ReconstitutionResult {
+  isValidInput: boolean;
   concentrationMgPerMl: number;
   concentrationMcgPerMl: number;
   targetDoseMg: number;
@@ -24,6 +25,7 @@ export interface ReconstitutionResult {
   mcgPerUnit: number;
   exceedsSyringeCapacity: boolean;
   exceedsVialMass: boolean;
+  syringesNeededCount: number;
 }
 
 export interface BlendCompound {
@@ -85,33 +87,88 @@ export const SYRINGE_PRESETS: {
   },
 ];
 
-const SCALE_UNITS_PER_ML: Record<SyringeScale, number> = {
+export const SCALE_UNITS_PER_ML: Record<SyringeScale, number> = {
   'U-100': 100,
   'U-50': 50,
   'U-40': 40,
 };
 
+/**
+ * Safely parses numeric input strings from both US/UK (dot decimal "2.5")
+ * and European/Swedish (comma decimal "2,5") keyboards.
+ * Rejects NaN, Infinity, and negative values.
+ */
+export function parseLocaleNumber(raw: string): number {
+  if (!raw || typeof raw !== 'string') return 0;
+  const normalized = raw.trim().replace(/,/g, '.');
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
+}
+
+/**
+ * Eliminates IEEE-754 floating-point drift (e.g. 0.30000000000000004 -> 0.3)
+ */
+export function roundClean(val: number, decimals = 6): number {
+  if (!Number.isFinite(val)) return 0;
+  const factor = Math.pow(10, decimals);
+  return Math.round((val + Number.EPSILON) * factor) / factor;
+}
+
 export function calculateReconstitution(
   input: ReconstitutionInput
 ): ReconstitutionResult {
-  const safeVialMg = Math.max(0.001, input.vialMassMg || 0);
-  const safeDiluentMl = Math.max(0.01, input.diluentVolumeMl || 0);
-  const rawTarget = Math.max(0, input.targetDose || 0);
+  const unitsPerMl = SCALE_UNITS_PER_ML[input.syringeScale];
+  const maxSyringeUnits = roundClean(input.syringeVolumeMl * unitsPerMl, 2);
 
-  const targetDoseMg =
-    input.targetDoseUnit === 'mg' ? rawTarget : rawTarget / 1000;
-  const targetDoseMcg =
-    input.targetDoseUnit === 'mcg' ? rawTarget : rawTarget * 1000;
+  const vialMg = Number.isFinite(input.vialMassMg) ? input.vialMassMg : 0;
+  const diluentMl = Number.isFinite(input.diluentVolumeMl)
+    ? input.diluentVolumeMl
+    : 0;
+  const rawTarget = Number.isFinite(input.targetDose)
+    ? Math.max(0, input.targetDose)
+    : 0;
 
-  const concentrationMgPerMl = safeVialMg / safeDiluentMl;
-  const concentrationMcgPerMl = concentrationMgPerMl * 1000;
+  const targetDoseMg = roundClean(
+    input.targetDoseUnit === 'mg' ? rawTarget : rawTarget / 1000,
+    6
+  );
+  const targetDoseMcg = roundClean(
+    input.targetDoseUnit === 'mcg' ? rawTarget : rawTarget * 1000,
+    4
+  );
+
+  // CRITICAL SAFETY: Never substitute phantom non-zero defaults when vial or diluent is 0/empty
+  if (vialMg <= 0 || diluentMl <= 0) {
+    return {
+      isValidInput: false,
+      concentrationMgPerMl: 0,
+      concentrationMcgPerMl: 0,
+      targetDoseMg,
+      targetDoseMcg,
+      volumeToDrawMl: 0,
+      syringeUnits: 0,
+      maxSyringeUnits,
+      fillPercentage: 0,
+      dosesPerVial: 0,
+      mcgPerUnit: 0,
+      exceedsSyringeCapacity: false,
+      exceedsVialMass: false,
+      syringesNeededCount: 0,
+    };
+  }
+
+  const concentrationMgPerMl = roundClean(vialMg / diluentMl, 6);
+  const concentrationMcgPerMl = roundClean(concentrationMgPerMl * 1000, 4);
 
   const volumeToDrawMl =
-    concentrationMgPerMl > 0 ? targetDoseMg / concentrationMgPerMl : 0;
+    concentrationMgPerMl > 0
+      ? roundClean(targetDoseMg / concentrationMgPerMl, 6)
+      : 0;
 
-  const unitsPerMl = SCALE_UNITS_PER_ML[input.syringeScale];
-  const syringeUnits = volumeToDrawMl * unitsPerMl;
-  const maxSyringeUnits = input.syringeVolumeMl * unitsPerMl;
+  const syringeUnits = roundClean(volumeToDrawMl * unitsPerMl, 4);
 
   const fillPercentage =
     maxSyringeUnits > 0
@@ -119,11 +176,20 @@ export function calculateReconstitution(
       : 0;
 
   const dosesPerVial =
-    targetDoseMg > 0 ? Math.floor((safeVialMg / targetDoseMg) * 100) / 100 : 0;
+    targetDoseMg > 0 ? roundClean(vialMg / targetDoseMg, 2) : 0;
 
-  const mcgPerUnit = unitsPerMl > 0 ? concentrationMcgPerMl / unitsPerMl : 0;
+  const mcgPerUnit =
+    unitsPerMl > 0 ? roundClean(concentrationMcgPerMl / unitsPerMl, 4) : 0;
+
+  const exceedsSyringeCapacity = syringeUnits > maxSyringeUnits + 1e-6;
+  const exceedsVialMass = targetDoseMg > vialMg + 1e-6;
+  const syringesNeededCount =
+    maxSyringeUnits > 0 && syringeUnits > 0
+      ? Math.ceil(roundClean(syringeUnits / maxSyringeUnits, 4))
+      : 0;
 
   return {
+    isValidInput: true,
     concentrationMgPerMl,
     concentrationMcgPerMl,
     targetDoseMg,
@@ -134,8 +200,9 @@ export function calculateReconstitution(
     fillPercentage,
     dosesPerVial,
     mcgPerUnit,
-    exceedsSyringeCapacity: syringeUnits > maxSyringeUnits,
-    exceedsVialMass: targetDoseMg > safeVialMg,
+    exceedsSyringeCapacity,
+    exceedsVialMass,
+    syringesNeededCount,
   };
 }
 
@@ -156,10 +223,19 @@ export function calculateBlendReconstitution(
     syringeVolumeMl,
   });
 
+  const safeSecondaryMg =
+    Number.isFinite(secondaryMg) && secondaryMg > 0 ? secondaryMg : 0;
+
   const secondaryConcentrationMcgPerMl =
-    diluentMl > 0 ? (secondaryMg * 1000) / diluentMl : 0;
-  const secondaryDeliveredMcg =
-    primaryResult.volumeToDrawMl * secondaryConcentrationMcgPerMl;
+    primaryResult.isValidInput && diluentMl > 0
+      ? roundClean((safeSecondaryMg * 1000) / diluentMl, 4)
+      : 0;
+  const secondaryDeliveredMcg = primaryResult.isValidInput
+    ? roundClean(
+        primaryResult.volumeToDrawMl * secondaryConcentrationMcgPerMl,
+        4
+      )
+    : 0;
 
   return {
     ...primaryResult,
