@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -8,15 +8,17 @@ import {
   ScrollView,
   Image,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
+import { getAvailablePackages } from '../services/purchases';
 
 export type PlanTier = 'monthly' | 'annual' | 'lifetime';
 
 interface PaywallModalProps {
   visible: boolean;
   onClose: () => void;
-  onUnlockSuccess: (tier: PlanTier) => void;
-  onRestorePurchases?: () => void;
+  onUnlockSuccess: (tier: PlanTier) => Promise<void> | void;
+  onRestorePurchases?: () => Promise<void> | void;
   triggerFeatureName?: string;
 }
 
@@ -28,6 +30,55 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
   triggerFeatureName,
 }) => {
   const [selectedTier, setSelectedTier] = useState<PlanTier>('lifetime');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [localizedPrices, setLocalizedPrices] = useState<
+    Record<PlanTier, string>
+  >({
+    lifetime: '$24.99',
+    annual: '$14.99',
+    monthly: '$2.99',
+  });
+
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    (async () => {
+      try {
+        const pkgs = await getAvailablePackages();
+        if (!active) return;
+        setLocalizedPrices((prev) => ({
+          lifetime: pkgs.lifetime?.product?.priceString || prev.lifetime,
+          annual: pkgs.annual?.product?.priceString || prev.annual,
+          monthly: pkgs.monthly?.product?.priceString || prev.monthly,
+        }));
+      } catch {
+        // Keep default USD fallback strings
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [visible]);
+
+  const handlePressPurchase = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onUnlockSuccess(selectedTier);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handlePressRestore = async () => {
+    if (isSubmitting || !onRestorePurchases) return;
+    setIsSubmitting(true);
+    try {
+      await onRestorePurchases();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const plans: {
     id: PlanTier;
@@ -42,7 +93,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
       id: 'lifetime',
       title: 'Lifetime Lab Unlock',
       subtitle: 'Pay once, own forever — zero recurring fees',
-      price: '$24.99',
+      price: localizedPrices.lifetime,
       period: 'ONE-TIME',
       badge: 'MOST POPULAR • NO SUBSCRIPTION',
       highlight: true,
@@ -50,8 +101,8 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
     {
       id: 'annual',
       title: 'Annual Pro Pass',
-      subtitle: 'Equivalent to $1.25 / month • 3-Day Free Trial',
-      price: '$14.99',
+      subtitle: '3-Day Free Trial • Best value annual plan',
+      price: localizedPrices.annual,
       period: '/ YEAR',
       badge: 'SAVE 58%',
     },
@@ -59,7 +110,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
       id: 'monthly',
       title: 'Monthly Flex',
       subtitle: 'Cancel anytime in 1 tap',
-      price: '$2.99',
+      price: localizedPrices.monthly,
       period: '/ MONTH',
     },
   ];
@@ -102,6 +153,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
             </View>
             <TouchableOpacity
               onPress={onClose}
+              disabled={isSubmitting}
               style={styles.closeBtn}
               accessibilityLabel="Close upgrade screen"
             >
@@ -146,6 +198,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
                   <TouchableOpacity
                     key={plan.id}
                     activeOpacity={0.85}
+                    disabled={isSubmitting}
                     onPress={() => setSelectedTier(plan.id)}
                     style={[
                       styles.planCard,
@@ -185,32 +238,42 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
 
             <TouchableOpacity
               activeOpacity={0.9}
-              style={styles.ctaButton}
-              onPress={() => onUnlockSuccess(selectedTier)}
+              disabled={isSubmitting}
+              style={[styles.ctaButton, isSubmitting && { opacity: 0.7 }]}
+              onPress={handlePressPurchase}
             >
-              <Text style={styles.ctaButtonText}>
-                {selectedTier === 'lifetime'
-                  ? 'Unlock Lifetime Pro ($24.99 Once)'
-                  : selectedTier === 'annual'
-                  ? 'Start 3-Day Free Trial ($14.99/yr)'
-                  : 'Continue with Monthly ($2.99/mo)'}
-              </Text>
+              {isSubmitting ? (
+                <ActivityIndicator color="#020617" />
+              ) : (
+                <Text style={styles.ctaButtonText}>
+                  {selectedTier === 'lifetime'
+                    ? `Unlock Lifetime Pro (${localizedPrices.lifetime} Once)`
+                    : selectedTier === 'annual'
+                    ? `Start 3-Day Free Trial (${localizedPrices.annual}/yr)`
+                    : `Continue with Monthly (${localizedPrices.monthly}/mo)`}
+                </Text>
+              )}
             </TouchableOpacity>
+
+            <Text style={styles.legalNoticeText}>
+              {selectedTier === 'lifetime'
+                ? 'One-time non-consumable purchase charged to your Apple ID account at confirmation. Never auto-renews.'
+                : 'Payment will be charged to your Apple ID account at confirmation of purchase (or after the 3-day trial). Subscription automatically renews unless canceled at least 24 hours before the end of the current period in Account Settings.'}
+            </Text>
 
             <View style={styles.footerLinks}>
               <TouchableOpacity
-                onPress={() =>
-                  onRestorePurchases
-                    ? onRestorePurchases()
-                    : onUnlockSuccess('lifetime')
-                }
+                disabled={isSubmitting}
+                onPress={handlePressRestore}
               >
                 <Text style={styles.footerLinkText}>Restore Purchases</Text>
               </TouchableOpacity>
               <Text style={styles.footerDot}>•</Text>
               <TouchableOpacity
                 onPress={() =>
-                  Linking.openURL('https://fooaldrin.github.io/pepcalc/privacy/')
+                  Linking.openURL(
+                    'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/'
+                  )
                 }
               >
                 <Text style={styles.footerLinkText}>Terms (EULA)</Text>
@@ -433,6 +496,14 @@ const styles = StyleSheet.create({
     color: '#020617',
     fontSize: 16,
     fontWeight: '800',
+  },
+  legalNoticeText: {
+    color: '#64748B',
+    fontSize: 11,
+    lineHeight: 15,
+    textAlign: 'center',
+    marginTop: 10,
+    paddingHorizontal: 6,
   },
   footerLinks: {
     flexDirection: 'row',

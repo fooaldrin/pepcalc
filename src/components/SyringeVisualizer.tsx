@@ -24,10 +24,12 @@ interface SyringeVisualizerProps {
   exceedsCapacity: boolean;
   exceedsVialMass?: boolean;
   isValidInput?: boolean;
+  syringesNeededCount?: number;
 }
 
-function formatUnitsReadout(units: number): string {
+export function formatUnitsReadout(units: number): string {
   if (!Number.isFinite(units) || units <= 0) return '0';
+  if (units < 0.01) return '< 0.01';
   const rounded2 = roundClean(units, 2);
   // If exact integer (e.g. 10), show 10
   if (Math.abs(rounded2 - Math.round(rounded2)) < 1e-4) {
@@ -51,6 +53,7 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
   exceedsCapacity,
   exceedsVialMass = false,
   isValidInput = true,
+  syringesNeededCount = 0,
 }) => {
   const clampedUnits = Math.min(maxSyringeUnits, Math.max(0, syringeUnits));
   const fillRatio = maxSyringeUnits > 0 ? clampedUnits / maxSyringeUnits : 0;
@@ -79,7 +82,7 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
   const fillColorStart = hasWarning ? '#EF4444' : '#06B6D4';
   const fillColorEnd = hasWarning ? '#DC2626' : '#3B82F6';
   const subUnitPrecisionWarning =
-    isValidInput && syringeUnits > 0 && syringeUnits < 1;
+    isValidInput && syringeUnits > 0 && syringeUnits < minorStep;
 
   return (
     <View style={styles.container}>
@@ -189,9 +192,9 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
           {/* Liquid Fill Inside Barrel */}
           {fillWidth > 0 && (
             <Rect
-              x={barrelX + 1}
+              x={barrelX}
               y={barrelY + 2}
-              width={Math.max(2, fillWidth - 1)}
+              width={Math.max(1, fillWidth)}
               height={barrelHeight - 4}
               fill="url(#liquidGrad)"
             />
@@ -276,8 +279,11 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
           <Text style={styles.warningText}>
             ⚠️ Target volume ({volumeToDrawMl.toFixed(3)} mL /{' '}
             {formatUnitsReadout(syringeUnits)} units) exceeds this{' '}
-            {syringeVolumeMl} mL ({maxSyringeUnits}u) syringe capacity. Switch
-            to a larger syringe or use less diluent.
+            {syringeVolumeMl} mL ({maxSyringeUnits}u) syringe capacity
+            {syringesNeededCount > 1
+              ? ` (requires ${syringesNeededCount} syringes)`
+              : ''}
+            . Switch to a larger syringe or use less diluent.
           </Text>
         </View>
       )}
@@ -286,9 +292,10 @@ export const SyringeVisualizer: React.FC<SyringeVisualizerProps> = ({
         <View style={styles.amberBanner}>
           <Text style={styles.amberText}>
             ⚠️ High Concentration Alert: {formatUnitsReadout(syringeUnits)}{' '}
-            units is less than 1 tick mark and is difficult to measure
-            accurately. Consider adding more diluent (mL) or using a 0.3 mL
-            (30u) syringe.
+            units is less than 1 tick mark ({minorStep}{' '}
+            {minorStep === 1 ? 'unit' : 'units'}) on this syringe and is
+            difficult to measure accurately. Consider adding more diluent (mL)
+            or using a 0.3 mL (30u) syringe.
           </Text>
         </View>
       )}

@@ -28,7 +28,7 @@ export async function initializeRevenueCat(): Promise<boolean> {
 
   try {
     if (!isConfigured) {
-      Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
+      Purchases.setLogLevel(__DEV__ ? LOG_LEVEL.VERBOSE : LOG_LEVEL.WARN);
       const apiKey =
         Platform.OS === 'ios'
           ? REVENUECAT_CONFIG.iosApiKey
@@ -53,7 +53,6 @@ export function checkProEntitlement(customerInfo: CustomerInfo): boolean {
   ) {
     return true;
   }
-  // Fallback if any active entitlement or non-subscription purchase is present during test store validation
   return (
     Object.keys(customerInfo?.entitlements?.active || {}).length > 0 ||
     (customerInfo?.nonSubscriptionTransactions || []).length > 0
@@ -107,9 +106,13 @@ export async function getAvailablePackages(): Promise<
   return result;
 }
 
-export async function purchasePlanTier(tier: PlanTier): Promise<boolean> {
+export async function purchasePlanTier(tier: PlanTier): Promise<{
+  success: boolean;
+  cancelled?: boolean;
+  errorMessage?: string;
+}> {
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
-    return true;
+    return { success: __DEV__ };
   }
 
   try {
@@ -118,25 +121,29 @@ export async function purchasePlanTier(tier: PlanTier): Promise<boolean> {
 
     if (pkg) {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
-      return checkProEntitlement(customerInfo);
+      return { success: checkProEntitlement(customerInfo) };
     }
 
-    // Fallback: if offerings aren't mapped yet, try first available package in current offering
-    const offerings = await Purchases.getOfferings();
-    const firstPkg = offerings.current?.availablePackages?.[0];
-    if (firstPkg) {
-      const { customerInfo } = await Purchases.purchasePackage(firstPkg);
-      return checkProEntitlement(customerInfo);
+    if (__DEV__) {
+      return { success: true };
     }
 
-    // If running in Expo Go without native StoreKit test products configured yet, unlock locally so testing never blocks
-    return true;
+    return {
+      success: false,
+      errorMessage:
+        'Unable to connect to the App Store right now. Please check your connection and try again.',
+    };
   } catch (err: any) {
     if (err?.userCancelled) {
-      return false;
+      return { success: false, cancelled: true };
     }
-    console.warn('[RevenueCat] Purchase error, falling back for local test:', err);
-    return true;
+    console.warn('[RevenueCat] Purchase error:', err);
+    return {
+      success: false,
+      errorMessage:
+        err?.message ||
+        'Your purchase could not be completed. Please try again.',
+    };
   }
 }
 

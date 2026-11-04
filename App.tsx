@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
   View,
   Text,
   TextInput,
@@ -13,16 +15,18 @@ import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   DoseUnit,
-  SyringeScale,
-  SyringeVolumeMl,
   SYRINGE_PRESETS,
+  SCALE_UNITS_PER_ML,
   SavedProtocol,
   calculateReconstitution,
   calculateBlendReconstitution,
   parseLocaleNumber,
   roundClean,
 } from './src/utils/reconstitutionMath';
-import { SyringeVisualizer } from './src/components/SyringeVisualizer';
+import {
+  SyringeVisualizer,
+  formatUnitsReadout,
+} from './src/components/SyringeVisualizer';
 import { PaywallModal, PlanTier } from './src/components/PaywallModal';
 import {
   initializeRevenueCat,
@@ -79,7 +83,21 @@ export default function App() {
             AsyncStorage.getItem(STORAGE_KEYS.DISCLAIMER_ACCEPTED),
           ]);
         if (savedProtocolsJson) {
-          setProtocols(JSON.parse(savedProtocolsJson));
+          const parsed = JSON.parse(savedProtocolsJson);
+          if (Array.isArray(parsed)) {
+            const validProtocols = parsed.filter(
+              (p): p is SavedProtocol =>
+                Boolean(
+                  p &&
+                    typeof p.id === 'string' &&
+                    p.input &&
+                    typeof p.input.vialMassMg === 'number' &&
+                    typeof p.input.diluentVolumeMl === 'number' &&
+                    typeof p.remainingVolumeMl === 'number'
+                )
+            );
+            setProtocols(validProtocols);
+          }
         } else {
           // Seed 1 sample protocol
           const todayISO = new Date().toISOString().slice(0, 10);
@@ -159,8 +177,13 @@ export default function App() {
   };
 
   const handleUnlockSuccess = async (tier: PlanTier) => {
-    const purchased = await purchasePlanTier(tier);
-    if (!purchased) return;
+    const result = await purchasePlanTier(tier);
+    if (!result.success) {
+      if (!result.cancelled && result.errorMessage) {
+        Alert.alert('Purchase Not Completed', result.errorMessage);
+      }
+      return;
+    }
     setIsPro(true);
     setPaywallVisible(false);
     await AsyncStorage.setItem(STORAGE_KEYS.IS_PRO, 'true');
@@ -237,18 +260,48 @@ export default function App() {
     setActiveTab('inventory');
   };
 
-  const handleLogDrawFromVial = async (id: string) => {
-    const updated = protocols.map((p) => {
-      if (p.id !== id) return p;
-      const res = calculateReconstitution(p.input);
-      const nextRemaining = Math.max(
-        0,
-        roundClean(p.remainingVolumeMl - res.volumeToDrawMl, 4)
-      );
-      return { ...p, remainingVolumeMl: nextRemaining };
-    });
+  const commitDrawFromVial = async (id: string, nextRemaining: number) => {
+    const updated = protocols.map((p) =>
+      p.id === id ? { ...p, remainingVolumeMl: nextRemaining } : p
+    );
     setProtocols(updated);
     await AsyncStorage.setItem(STORAGE_KEYS.PROTOCOLS, JSON.stringify(updated));
+  };
+
+  const handleLogDrawFromVial = async (id: string) => {
+    const target = protocols.find((p) => p.id === id);
+    if (!target) return;
+    if (target.remainingVolumeMl <= 0) {
+      Alert.alert('Vial Depleted', 'This vial has 0.00 mL remaining.');
+      return;
+    }
+    const res = calculateReconstitution(target.input);
+    if (target.remainingVolumeMl + 1e-6 < res.volumeToDrawMl) {
+      Alert.alert(
+        'Insufficient Volume for Full Draw',
+        `This vial only has ${target.remainingVolumeMl.toFixed(
+          3
+        )} mL remaining, which is less than your full target draw of ${res.volumeToDrawMl.toFixed(
+          3
+        )} mL (${formatUnitsReadout(res.syringeUnits)}u on ${
+          target.input.syringeScale
+        }). Do you want to mark the vial as empty (0.00 mL)?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Deplete Vial',
+            style: 'destructive',
+            onPress: () => commitDrawFromVial(id, 0),
+          },
+        ]
+      );
+      return;
+    }
+    const nextRemaining = Math.max(
+      0,
+      roundClean(target.remainingVolumeMl - res.volumeToDrawMl, 4)
+    );
+    await commitDrawFromVial(id, nextRemaining);
   };
 
   const handleDeleteProtocol = async (id: string) => {
@@ -274,9 +327,9 @@ export default function App() {
 
       {/* Top Header */}
       <View style={styles.header}>
-        <View>
+        <View style={{ flex: 1, marginRight: 10 }}>
           <Text style={styles.appTitle}>PepCalc</Text>
-          <Text style={styles.appSubtitle}>
+          <Text style={styles.appSubtitle} numberOfLines={1}>
             Volumetric Reconstitution & Syringe Unit Lab
           </Text>
         </View>
@@ -325,68 +378,325 @@ export default function App() {
         })}
       </View>
 
-      <ScrollView
-        style={styles.scrollArea}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {activeTab === 'calculator' && (
-          <>
-            {/* Live Interactive Syringe Visualizer */}
-            <SyringeVisualizer
-              syringeUnits={calcResult.syringeUnits}
-              maxSyringeUnits={calcResult.maxSyringeUnits}
-              volumeToDrawMl={calcResult.volumeToDrawMl}
-              syringeScale={selectedSyringe.scale}
-              syringeVolumeMl={selectedSyringe.volumeMl}
-              exceedsCapacity={calcResult.exceedsSyringeCapacity}
-              exceedsVialMass={calcResult.exceedsVialMass}
-              isValidInput={calcResult.isValidInput}
-            />
+        <ScrollView
+          style={styles.scrollArea}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {activeTab === 'calculator' && (
+            <>
+              {/* Live Interactive Syringe Visualizer */}
+              <SyringeVisualizer
+                syringeUnits={calcResult.syringeUnits}
+                maxSyringeUnits={calcResult.maxSyringeUnits}
+                volumeToDrawMl={calcResult.volumeToDrawMl}
+                syringeScale={selectedSyringe.scale}
+                syringeVolumeMl={selectedSyringe.volumeMl}
+                exceedsCapacity={calcResult.exceedsSyringeCapacity}
+                exceedsVialMass={calcResult.exceedsVialMass}
+                isValidInput={calcResult.isValidInput}
+                syringesNeededCount={calcResult.syringesNeededCount}
+              />
 
-            {/* Secondary Metrics Grid */}
-            <View style={styles.metricsGrid}>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>CONCENTRATION</Text>
-                <Text style={styles.metricValue}>
-                  {calcResult.concentrationMgPerMl.toFixed(2)} mg/mL
-                </Text>
-                <Text style={styles.metricSub}>
-                  {Math.round(calcResult.concentrationMcgPerMl).toLocaleString()}{' '}
-                  mcg/mL
-                </Text>
+              {/* Secondary Metrics Grid */}
+              <View style={styles.metricsGrid}>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricLabel}>CONCENTRATION</Text>
+                  <Text style={styles.metricValue}>
+                    {calcResult.concentrationMgPerMl.toFixed(2)} mg/mL
+                  </Text>
+                  <Text style={styles.metricSub}>
+                    {Math.round(
+                      calcResult.concentrationMcgPerMl
+                    ).toLocaleString()}{' '}
+                    mcg/mL
+                  </Text>
+                </View>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricLabel}>PER 1 SYRINGE UNIT</Text>
+                  <Text style={styles.metricValue}>
+                    {calcResult.mcgPerUnit.toFixed(1)} mcg
+                  </Text>
+                  <Text style={styles.metricSub}>
+                    {(calcResult.mcgPerUnit / 1000).toFixed(4)} mg/unit
+                  </Text>
+                </View>
+                <View style={styles.metricCard}>
+                  <Text style={styles.metricLabel}>TOTAL VIAL DOSES</Text>
+                  <Text style={styles.metricValue}>
+                    {calcResult.dosesPerVial.toFixed(1)}x
+                  </Text>
+                  <Text style={styles.metricSub}>
+                    at {parseLocaleNumber(targetDoseStr)} {targetDoseUnit}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>PER 1 SYRINGE UNIT</Text>
-                <Text style={styles.metricValue}>
-                  {calcResult.mcgPerUnit.toFixed(1)} mcg
-                </Text>
-                <Text style={styles.metricSub}>
-                  {(calcResult.mcgPerUnit / 1000).toFixed(4)} mg/unit
-                </Text>
-              </View>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>TOTAL VIAL DOSES</Text>
-                <Text style={styles.metricValue}>
-                  {calcResult.dosesPerVial.toFixed(1)}x
-                </Text>
-                <Text style={styles.metricSub}>
-                  at {targetDoseStr} {targetDoseUnit}
-                </Text>
-              </View>
-            </View>
 
-            {/* Step 1: Syringe Barrel Selection */}
+              {/* Step 1: Syringe Barrel Selection */}
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>
+                  1. SYRINGE TYPE & VOLUME
+                </Text>
+                <View style={styles.chipRow}>
+                  {SYRINGE_PRESETS.map((preset, idx) => {
+                    const selected = idx === syringePresetIndex;
+                    return (
+                      <TouchableOpacity
+                        key={preset.label}
+                        onPress={() => setSyringePresetIndex(idx)}
+                        style={[styles.chip, selected && styles.chipSelected]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            selected && styles.chipTextSelected,
+                          ]}
+                        >
+                          {preset.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Step 2: Vial Mass (mg) */}
+              <View style={styles.card}>
+                <View style={styles.inputHeaderRow}>
+                  <Text style={styles.sectionTitle}>
+                    2. VIAL LYOPHILIZED MASS (MG)
+                  </Text>
+                  <View style={styles.inputBoxWrapper}>
+                    <TextInput
+                      style={styles.numericInput}
+                      keyboardType="decimal-pad"
+                      value={vialMassStr}
+                      onChangeText={setVialMassStr}
+                      selectTextOnFocus
+                    />
+                    <Text style={styles.inputUnitTag}>mg</Text>
+                  </View>
+                </View>
+                <View style={styles.chipRow}>
+                  {QUICK_VIAL_MG.map((mg) => {
+                    const selected = parseLocaleNumber(vialMassStr) === mg;
+                    return (
+                      <TouchableOpacity
+                        key={mg}
+                        onPress={() => setVialMassStr(mg.toString())}
+                        style={[
+                          styles.quickChip,
+                          selected && styles.chipSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            selected && styles.chipTextSelected,
+                          ]}
+                        >
+                          {mg} mg
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Step 3: Diluent / BAC Water (mL) */}
+              <View style={styles.card}>
+                <View style={styles.inputHeaderRow}>
+                  <Text style={styles.sectionTitle}>
+                    3. DILUENT / WATER ADDED (ML)
+                  </Text>
+                  <View style={styles.inputBoxWrapper}>
+                    <TextInput
+                      style={styles.numericInput}
+                      keyboardType="decimal-pad"
+                      value={diluentVolumeStr}
+                      onChangeText={setDiluentVolumeStr}
+                      selectTextOnFocus
+                    />
+                    <Text style={styles.inputUnitTag}>mL</Text>
+                  </View>
+                </View>
+                <View style={styles.chipRow}>
+                  {QUICK_DILUENT_ML.map((ml) => {
+                    const selected = parseLocaleNumber(diluentVolumeStr) === ml;
+                    return (
+                      <TouchableOpacity
+                        key={ml}
+                        onPress={() => setDiluentVolumeStr(ml.toString())}
+                        style={[
+                          styles.quickChip,
+                          selected && styles.chipSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            selected && styles.chipTextSelected,
+                          ]}
+                        >
+                          {ml} mL
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Step 4: Target Aliquot / Dose (mcg or mg) */}
+              <View style={styles.card}>
+                <View style={styles.inputHeaderRow}>
+                  <View>
+                    <Text style={styles.sectionTitle}>
+                      4. TARGET DRAW AMOUNT
+                    </Text>
+                    <View style={styles.unitToggleContainer}>
+                      <TouchableOpacity
+                        onPress={() => toggleDoseUnit('mcg')}
+                        style={[
+                          styles.unitToggleBtn,
+                          targetDoseUnit === 'mcg' &&
+                            styles.unitToggleBtnActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.unitToggleText,
+                            targetDoseUnit === 'mcg' &&
+                              styles.unitToggleTextActive,
+                          ]}
+                        >
+                          mcg (µg)
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => toggleDoseUnit('mg')}
+                        style={[
+                          styles.unitToggleBtn,
+                          targetDoseUnit === 'mg' && styles.unitToggleBtnActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.unitToggleText,
+                            targetDoseUnit === 'mg' &&
+                              styles.unitToggleTextActive,
+                          ]}
+                        >
+                          mg
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={styles.inputBoxWrapper}>
+                    <TextInput
+                      style={styles.numericInput}
+                      keyboardType="decimal-pad"
+                      value={targetDoseStr}
+                      onChangeText={setTargetDoseStr}
+                      selectTextOnFocus
+                    />
+                    <Text style={styles.inputUnitTag}>{targetDoseUnit}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.chipRow}>
+                  {(targetDoseUnit === 'mcg'
+                    ? QUICK_DOSE_MCG
+                    : QUICK_DOSE_MG
+                  ).map((val) => {
+                    const selected = parseLocaleNumber(targetDoseStr) === val;
+                    return (
+                      <TouchableOpacity
+                        key={val}
+                        onPress={() => setTargetDoseStr(val.toString())}
+                        style={[
+                          styles.quickChip,
+                          selected && styles.chipSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            selected && styles.chipTextSelected,
+                          ]}
+                        >
+                          {val} {targetDoseUnit}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Save to Vial Fridge Inventory */}
+              <View style={styles.saveCard}>
+                <Text style={styles.sectionTitle}>
+                  SAVE TO VIAL FRIDGE INVENTORY
+                </Text>
+                <View style={styles.saveRow}>
+                  <TextInput
+                    style={styles.labelInput}
+                    placeholder="Label (e.g. Sample B - 5mg)"
+                    placeholderTextColor="#64748B"
+                    value={newProtocolLabel}
+                    onChangeText={setNewProtocolLabel}
+                  />
+                  <TouchableOpacity
+                    style={styles.saveButton}
+                    onPress={handleSaveCurrentProtocol}
+                  >
+                    <Text style={styles.saveButtonText}>+ Save Vial</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </>
+          )}
+
+          {activeTab === 'blend' && (
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>1. SYRINGE TYPE & VOLUME</Text>
-              <View style={styles.chipRow}>
+              <View style={styles.proFeatureHeader}>
+                <Text style={styles.sectionTitle}>
+                  DUAL-COMPOUND BLEND CALCULATOR
+                </Text>
+                {!isPro && (
+                  <TouchableOpacity
+                    onPress={() =>
+                      openPaywall('Dual-Compound Blend Calculator')
+                    }
+                    style={styles.unlockTag}
+                  >
+                    <Text style={styles.unlockTagText}>PRO FEATURE</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <Text style={styles.helperText}>
+                Calculate exact syringe units and secondary compound delivery
+                when two lyophilized compounds share a single reconstituted
+                vial.
+              </Text>
+
+              {/* Active Syringe Barrel Selector Inside Blend Lab */}
+              <Text style={styles.blendFieldLabel}>Active Syringe Barrel</Text>
+              <View style={[styles.chipRow, { marginBottom: 12 }]}>
                 {SYRINGE_PRESETS.map((preset, idx) => {
                   const selected = idx === syringePresetIndex;
                   return (
                     <TouchableOpacity
                       key={preset.label}
                       onPress={() => setSyringePresetIndex(idx)}
-                      style={[styles.chip, selected && styles.chipSelected]}
+                      style={[
+                        styles.quickChip,
+                        selected && styles.chipSelected,
+                      ]}
                     >
                       <Text
                         style={[
@@ -400,439 +710,348 @@ export default function App() {
                   );
                 })}
               </View>
-            </View>
 
-            {/* Step 2: Vial Mass (mg) */}
-            <View style={styles.card}>
-              <View style={styles.inputHeaderRow}>
-                <Text style={styles.sectionTitle}>
-                  2. VIAL LYOPHILIZED MASS (MG)
-                </Text>
-                <View style={styles.inputBoxWrapper}>
+              <View style={styles.blendInputGrid}>
+                <View style={styles.blendCol}>
+                  <Text style={styles.blendFieldLabel}>Compound A (mg)</Text>
                   <TextInput
-                    style={styles.numericInput}
+                    style={styles.blendInput}
                     keyboardType="decimal-pad"
-                    value={vialMassStr}
-                    onChangeText={setVialMassStr}
+                    value={blendPrimaryMgStr}
+                    onChangeText={setBlendPrimaryMgStr}
                     selectTextOnFocus
                   />
-                  <Text style={styles.inputUnitTag}>mg</Text>
                 </View>
-              </View>
-              <View style={styles.chipRow}>
-                {QUICK_VIAL_MG.map((mg) => {
-                  const selected = parseLocaleNumber(vialMassStr) === mg;
-                  return (
-                    <TouchableOpacity
-                      key={mg}
-                      onPress={() => setVialMassStr(mg.toString())}
-                      style={[styles.quickChip, selected && styles.chipSelected]}
-                    >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          selected && styles.chipTextSelected,
-                        ]}
-                      >
-                        {mg} mg
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Step 3: Diluent / BAC Water (mL) */}
-            <View style={styles.card}>
-              <View style={styles.inputHeaderRow}>
-                <Text style={styles.sectionTitle}>
-                  3. DILUENT / WATER ADDED (ML)
-                </Text>
-                <View style={styles.inputBoxWrapper}>
+                <View style={styles.blendCol}>
+                  <Text style={styles.blendFieldLabel}>Compound B (mg)</Text>
                   <TextInput
-                    style={styles.numericInput}
+                    style={styles.blendInput}
                     keyboardType="decimal-pad"
-                    value={diluentVolumeStr}
-                    onChangeText={setDiluentVolumeStr}
+                    value={blendSecondaryMgStr}
+                    onChangeText={setBlendSecondaryMgStr}
                     selectTextOnFocus
                   />
-                  <Text style={styles.inputUnitTag}>mL</Text>
                 </View>
-              </View>
-              <View style={styles.chipRow}>
-                {QUICK_DILUENT_ML.map((ml) => {
-                  const selected = parseLocaleNumber(diluentVolumeStr) === ml;
-                  return (
-                    <TouchableOpacity
-                      key={ml}
-                      onPress={() => setDiluentVolumeStr(ml.toString())}
-                      style={[styles.quickChip, selected && styles.chipSelected]}
-                    >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          selected && styles.chipTextSelected,
-                        ]}
-                      >
-                        {ml} mL
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Step 4: Target Aliquot / Dose (mcg or mg) */}
-            <View style={styles.card}>
-              <View style={styles.inputHeaderRow}>
-                <View>
-                  <Text style={styles.sectionTitle}>4. TARGET DRAW AMOUNT</Text>
-                  <View style={styles.unitToggleContainer}>
-                    <TouchableOpacity
-                      onPress={() => toggleDoseUnit('mcg')}
-                      style={[
-                        styles.unitToggleBtn,
-                        targetDoseUnit === 'mcg' && styles.unitToggleBtnActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.unitToggleText,
-                          targetDoseUnit === 'mcg' &&
-                            styles.unitToggleTextActive,
-                        ]}
-                      >
-                        mcg (µg)
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => toggleDoseUnit('mg')}
-                      style={[
-                        styles.unitToggleBtn,
-                        targetDoseUnit === 'mg' && styles.unitToggleBtnActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.unitToggleText,
-                          targetDoseUnit === 'mg' &&
-                            styles.unitToggleTextActive,
-                        ]}
-                      >
-                        mg
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <View style={styles.inputBoxWrapper}>
+                <View style={styles.blendCol}>
+                  <Text style={styles.blendFieldLabel}>Diluent (mL)</Text>
                   <TextInput
-                    style={styles.numericInput}
+                    style={styles.blendInput}
                     keyboardType="decimal-pad"
-                    value={targetDoseStr}
-                    onChangeText={setTargetDoseStr}
+                    value={blendDiluentMlStr}
+                    onChangeText={setBlendDiluentMlStr}
                     selectTextOnFocus
                   />
-                  <Text style={styles.inputUnitTag}>{targetDoseUnit}</Text>
+                </View>
+                <View style={styles.blendCol}>
+                  <Text style={styles.blendFieldLabel}>Target A (mcg)</Text>
+                  <TextInput
+                    style={styles.blendInput}
+                    keyboardType="decimal-pad"
+                    value={blendTargetMcgStr}
+                    onChangeText={setBlendTargetMcgStr}
+                    selectTextOnFocus
+                  />
                 </View>
               </View>
 
-              <View style={styles.chipRow}>
-                {(targetDoseUnit === 'mcg'
-                  ? QUICK_DOSE_MCG
-                  : QUICK_DOSE_MG
-                ).map((val) => {
-                  const selected = parseLocaleNumber(targetDoseStr) === val;
-                  return (
-                    <TouchableOpacity
-                      key={val}
-                      onPress={() => setTargetDoseStr(val.toString())}
-                      style={[styles.quickChip, selected && styles.chipSelected]}
-                    >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          selected && styles.chipTextSelected,
-                        ]}
-                      >
-                        {val} {targetDoseUnit}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Save to Vial Fridge Inventory */}
-            <View style={styles.saveCard}>
-              <Text style={styles.sectionTitle}>
-                SAVE TO VIAL FRIDGE INVENTORY
-              </Text>
-              <View style={styles.saveRow}>
-                <TextInput
-                  style={styles.labelInput}
-                  placeholder="Label (e.g. Sample B - 5mg)"
-                  placeholderTextColor="#64748B"
-                  value={newProtocolLabel}
-                  onChangeText={setNewProtocolLabel}
-                />
+              {isPro ? (
+                <View style={styles.blendResultBox}>
+                  <SyringeVisualizer
+                    syringeUnits={blendResult.syringeUnits}
+                    maxSyringeUnits={blendResult.maxSyringeUnits}
+                    volumeToDrawMl={blendResult.volumeToDrawMl}
+                    syringeScale={selectedSyringe.scale}
+                    syringeVolumeMl={selectedSyringe.volumeMl}
+                    exceedsCapacity={blendResult.exceedsSyringeCapacity}
+                    exceedsVialMass={blendResult.exceedsVialMass}
+                    isValidInput={blendResult.isValidInput}
+                    syringesNeededCount={blendResult.syringesNeededCount}
+                  />
+                  {blendResult.isValidInput ? (
+                    <Text style={styles.blendSummaryText}>
+                      Drawing{' '}
+                      <Text style={styles.highlightCyan}>
+                        {formatUnitsReadout(blendResult.syringeUnits)} units (
+                        {selectedSyringe.scale})
+                      </Text>{' '}
+                      ({blendResult.volumeToDrawMl.toFixed(3)} mL) delivers{' '}
+                      <Text style={styles.highlightCyan}>
+                        {parseLocaleNumber(blendTargetMcgStr)} mcg
+                      </Text>{' '}
+                      of Compound A +{' '}
+                      <Text style={styles.highlightCyan}>
+                        {roundClean(blendResult.secondaryDeliveredMcg, 2)} mcg
+                      </Text>{' '}
+                      of Compound B.
+                    </Text>
+                  ) : (
+                    <Text style={styles.blendSummaryText}>
+                      Enter valid mass (&gt; 0 mg) for both Compound A and
+                      Compound B plus Diluent (&gt; 0 mL).
+                    </Text>
+                  )}
+                </View>
+              ) : (
                 <TouchableOpacity
-                  style={styles.saveButton}
-                  onPress={handleSaveCurrentProtocol}
-                >
-                  <Text style={styles.saveButtonText}>+ Save Vial</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </>
-        )}
-
-        {activeTab === 'blend' && (
-          <View style={styles.card}>
-            <View style={styles.proFeatureHeader}>
-              <Text style={styles.sectionTitle}>
-                DUAL-COMPOUND BLEND CALCULATOR
-              </Text>
-              {!isPro && (
-                <TouchableOpacity
+                  activeOpacity={0.9}
                   onPress={() => openPaywall('Dual-Compound Blend Calculator')}
-                  style={styles.unlockTag}
+                  style={styles.lockedOverlayCard}
                 >
-                  <Text style={styles.unlockTagText}>PRO FEATURE</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <Text style={styles.helperText}>
-              Calculate exact syringe units and secondary compound delivery when
-              two lyophilized compounds share a single reconstituted vial.
-            </Text>
-
-            <View style={styles.blendInputGrid}>
-              <View style={styles.blendCol}>
-                <Text style={styles.blendFieldLabel}>Compound A (mg)</Text>
-                <TextInput
-                  style={styles.blendInput}
-                  keyboardType="decimal-pad"
-                  value={blendPrimaryMgStr}
-                  onChangeText={setBlendPrimaryMgStr}
-                />
-              </View>
-              <View style={styles.blendCol}>
-                <Text style={styles.blendFieldLabel}>Compound B (mg)</Text>
-                <TextInput
-                  style={styles.blendInput}
-                  keyboardType="decimal-pad"
-                  value={blendSecondaryMgStr}
-                  onChangeText={setBlendSecondaryMgStr}
-                />
-              </View>
-              <View style={styles.blendCol}>
-                <Text style={styles.blendFieldLabel}>Diluent (mL)</Text>
-                <TextInput
-                  style={styles.blendInput}
-                  keyboardType="decimal-pad"
-                  value={blendDiluentMlStr}
-                  onChangeText={setBlendDiluentMlStr}
-                />
-              </View>
-              <View style={styles.blendCol}>
-                <Text style={styles.blendFieldLabel}>Target A (mcg)</Text>
-                <TextInput
-                  style={styles.blendInput}
-                  keyboardType="decimal-pad"
-                  value={blendTargetMcgStr}
-                  onChangeText={setBlendTargetMcgStr}
-                />
-              </View>
-            </View>
-
-            {isPro ? (
-              <View style={styles.blendResultBox}>
-                <SyringeVisualizer
-                  syringeUnits={blendResult.syringeUnits}
-                  maxSyringeUnits={blendResult.maxSyringeUnits}
-                  volumeToDrawMl={blendResult.volumeToDrawMl}
-                  syringeScale={selectedSyringe.scale}
-                  syringeVolumeMl={selectedSyringe.volumeMl}
-                  exceedsCapacity={blendResult.exceedsSyringeCapacity}
-                  exceedsVialMass={blendResult.exceedsVialMass}
-                  isValidInput={blendResult.isValidInput}
-                />
-                <Text style={styles.blendSummaryText}>
-                  Drawing{' '}
-                  <Text style={styles.highlightCyan}>
-                    {roundClean(blendResult.syringeUnits, 2)} units
-                  </Text>{' '}
-                  ({blendResult.volumeToDrawMl.toFixed(3)} mL) delivers{' '}
-                  <Text style={styles.highlightCyan}>
-                    {parseLocaleNumber(blendTargetMcgStr)} mcg
-                  </Text>{' '}
-                  of Compound A +{' '}
-                  <Text style={styles.highlightCyan}>
-                    {roundClean(blendResult.secondaryDeliveredMcg, 1)} mcg
-                  </Text>{' '}
-                  of Compound B.
-                </Text>
-              </View>
-            ) : (
-              <TouchableOpacity
-                activeOpacity={0.9}
-                onPress={() => openPaywall('Dual-Compound Blend Calculator')}
-                style={styles.lockedOverlayCard}
-              >
-                <Text style={styles.lockedTitle}>
-                  🔒 Unlock Multi-Compound Blend Math
-                </Text>
-                <Text style={styles.lockedDesc}>
-                  See exact syringe tick marks and secondary mcg ratios for
-                  blended vials (e.g., 5mg/5mg or 10mg/5mg combinations).
-                </Text>
-                <View style={styles.lockedCta}>
-                  <Text style={styles.lockedCtaText}>
-                    Unlock Pro Lab (Trial or Lifetime)
+                  <Text style={styles.lockedTitle}>
+                    🔒 Unlock Multi-Compound Blend Math
                   </Text>
-                </View>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {activeTab === 'inventory' && (
-          <View>
-            <View style={styles.inventoryHeaderRow}>
-              <Text style={styles.sectionTitle}>
-                ACTIVE RECONSTITUTED VIALS ({protocols.length}
-                {!isPro ? '/1 Free' : ''})
-              </Text>
-              {!isPro && (
-                <TouchableOpacity
-                  onPress={() => openPaywall('Unlimited Vial Fridge Inventory')}
-                >
-                  <Text style={styles.upgradeLink}>+ Unlock Unlimited</Text>
+                  <Text style={styles.lockedDesc}>
+                    See exact syringe tick marks and secondary mcg ratios for
+                    blended vials (e.g., 5mg/5mg or 10mg/5mg combinations).
+                  </Text>
+                  <View style={styles.lockedCta}>
+                    <Text style={styles.lockedCtaText}>
+                      Unlock Pro Lab (Trial or Lifetime)
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               )}
             </View>
+          )}
 
-            {protocols.map((item) => {
-              const res = calculateReconstitution(item.input);
-              const pctRemaining = Math.min(
-                100,
-                Math.max(
-                  0,
-                  (item.remainingVolumeMl / item.input.diluentVolumeMl) * 100
-                )
-              );
-              return (
-                <View key={item.id} style={styles.vialCard}>
-                  <View style={styles.vialCardTop}>
-                    <View>
-                      <Text style={styles.vialTitle}>{item.label}</Text>
-                      <Text style={styles.vialMeta}>
-                        Mixed: {item.reconstitutedDateISO} •{' '}
-                        {item.input.vialMassMg}mg in{' '}
-                        {item.input.diluentVolumeMl}mL (
-                        {res.concentrationMgPerMl.toFixed(2)} mg/mL)
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => handleDeleteProtocol(item.id)}
-                    >
-                      <Text style={styles.deleteText}>Remove</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={styles.progressBarBg}>
-                    <View
-                      style={[
-                        styles.progressBarFill,
-                        { width: `${pctRemaining}%` },
-                      ]}
-                    />
-                  </View>
-
-                  <View style={styles.vialFooterRow}>
-                    <Text style={styles.vialRemainingText}>
-                      Remaining: {item.remainingVolumeMl.toFixed(2)} mL /{' '}
-                      {item.input.diluentVolumeMl} mL (
-                      {res.volumeToDrawMl > 0
-                        ? Math.floor(
-                            (item.remainingVolumeMl + 1e-6) / res.volumeToDrawMl
-                          )
-                        : 0}{' '}
-                      draws left)
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.logDrawBtn}
-                      onPress={() => handleLogDrawFromVial(item.id)}
-                    >
-                      <Text style={styles.logDrawBtnText}>
-                        - Log {roundClean(res.syringeUnits, 2)}u Draw
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
-
-        {activeTab === 'table' && (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>
-              UNIT-BY-UNIT TITRATION REFERENCE TABLE
-            </Text>
-            <Text style={styles.helperText}>
-              Current Mix: {vialMassStr} mg in {diluentVolumeStr} mL (
-              {calcResult.concentrationMgPerMl.toFixed(2)} mg/mL) on{' '}
-              {selectedSyringe.label}
-            </Text>
-
-            <View style={styles.tableHeader}>
-              <Text style={styles.tableHeaderCell}>Syringe Units</Text>
-              <Text style={styles.tableHeaderCell}>Volume (mL)</Text>
-              <Text style={styles.tableHeaderCell}>Mass (mcg)</Text>
-              <Text style={styles.tableHeaderCell}>Mass (mg)</Text>
-            </View>
-
-            {[1, 2, 2.5, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 75, 100]
-              .filter((u) => u <= selectedSyringe.maxUnits)
-              .map((u, idx) => {
-                const lockedRow = !isPro && idx >= 4;
-                const volMl = u / (selectedSyringe.scale === 'U-40' ? 40 : 100);
-                const mcg = roundClean(u * calcResult.mcgPerUnit, 1);
-                const mg = roundClean(mcg / 1000, 3);
-                return (
+          {activeTab === 'inventory' && (
+            <View>
+              <View style={styles.inventoryHeaderRow}>
+                <Text style={styles.sectionTitle}>
+                  ACTIVE RECONSTITUTED VIALS ({protocols.length}
+                  {!isPro ? '/1 Free' : ''})
+                </Text>
+                {!isPro && (
                   <TouchableOpacity
-                    key={u}
-                    disabled={!lockedRow}
-                    onPress={() => openPaywall('Full Unit Reference Table')}
-                    style={[
-                      styles.tableRow,
-                      idx % 2 === 1 && styles.tableRowAlt,
-                    ]}
+                    onPress={() =>
+                      openPaywall('Unlimited Vial Fridge Inventory')
+                    }
                   >
-                    <Text style={styles.tableCellBold}>{u} u</Text>
-                    <Text style={styles.tableCell}>{volMl.toFixed(3)} mL</Text>
-                    <Text style={styles.tableCell}>
-                      {lockedRow ? '🔒 Pro' : `${mcg} mcg`}
-                    </Text>
-                    <Text style={styles.tableCell}>
-                      {lockedRow ? '🔒 Pro' : `${mg.toFixed(3)} mg`}
-                    </Text>
+                    <Text style={styles.upgradeLink}>+ Unlock Unlimited</Text>
                   </TouchableOpacity>
+                )}
+              </View>
+
+              {protocols.map((item) => {
+                const res = calculateReconstitution(item.input);
+                const safeDiluent =
+                  item.input.diluentVolumeMl > 0
+                    ? item.input.diluentVolumeMl
+                    : 1;
+                const pctRemaining = Math.min(
+                  100,
+                  Math.max(0, (item.remainingVolumeMl / safeDiluent) * 100)
+                );
+                const isDepleted = item.remainingVolumeMl <= 0;
+
+                // Calculate 28-day shelf-life countdown
+                const reconTimestamp = Date.parse(item.reconstitutedDateISO);
+                const elapsedDays = Number.isFinite(reconTimestamp)
+                  ? Math.max(
+                      0,
+                      Math.floor(
+                        (Date.now() - reconTimestamp) / (1000 * 60 * 60 * 24)
+                      )
+                    )
+                  : 0;
+                const expDaysLeft = (item.expirationDays || 28) - elapsedDays;
+                const isExpired = expDaysLeft <= 0;
+
+                return (
+                  <View key={item.id} style={styles.vialCard}>
+                    <View style={styles.vialCardTop}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={styles.vialTitle}>{item.label}</Text>
+                        <Text style={styles.vialMeta}>
+                          Mixed: {item.reconstitutedDateISO} •{' '}
+                          {item.input.vialMassMg}mg in{' '}
+                          {item.input.diluentVolumeMl}mL (
+                          {res.concentrationMgPerMl.toFixed(2)} mg/mL)
+                        </Text>
+                        <Text style={styles.vialMeta}>
+                          Target: {item.input.targetDose}{' '}
+                          {item.input.targetDoseUnit} •{' '}
+                          {formatUnitsReadout(res.syringeUnits)}u on{' '}
+                          {item.input.syringeScale} (
+                          {item.input.syringeVolumeMl}mL) •{' '}
+                          <Text
+                            style={{
+                              color: isExpired
+                                ? '#EF4444'
+                                : expDaysLeft <= 5
+                                ? '#F59E0B'
+                                : '#22D3EE',
+                              fontWeight: '700',
+                            }}
+                          >
+                            {isExpired
+                              ? 'EXPIRED (>28d)'
+                              : `${expDaysLeft}d shelf-life left`}
+                          </Text>
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => handleDeleteProtocol(item.id)}
+                      >
+                        <Text style={styles.deleteText}>Remove</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.progressBarBg}>
+                      <View
+                        style={[
+                          styles.progressBarFill,
+                          { width: `${pctRemaining}%` },
+                        ]}
+                      />
+                    </View>
+
+                    <View style={styles.vialFooterRow}>
+                      <Text style={styles.vialRemainingText}>
+                        Remaining: {item.remainingVolumeMl.toFixed(2)} mL /{' '}
+                        {item.input.diluentVolumeMl} mL (
+                        {res.volumeToDrawMl > 0
+                          ? Math.floor(
+                              (item.remainingVolumeMl + 1e-6) /
+                                res.volumeToDrawMl
+                            )
+                          : 0}{' '}
+                        draws left)
+                      </Text>
+                      <TouchableOpacity
+                        disabled={isDepleted}
+                        style={[
+                          styles.logDrawBtn,
+                          isDepleted && {
+                            opacity: 0.45,
+                            borderColor: '#475569',
+                          },
+                        ]}
+                        onPress={() => handleLogDrawFromVial(item.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.logDrawBtnText,
+                            isDepleted && { color: '#94A3B8' },
+                          ]}
+                        >
+                          {isDepleted
+                            ? 'Vial Empty'
+                            : `- Log ${formatUnitsReadout(res.syringeUnits)}u (${
+                                item.input.syringeScale
+                              })`}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 );
               })}
-          </View>
-        )}
+            </View>
+          )}
 
-        {/* Mandatory Apple Guideline 1.4.1 Safe Laboratory Disclaimer Footer */}
-        <View style={styles.disclaimerFooter}>
-          <Text style={styles.disclaimerFooterText}>
-            LABORATORY & EDUCATIONAL UTILITY: PepCalc performs mathematical
-            volumetric concentration conversions (C₁V₁ = C₂V₂). Not intended for
-            clinical or medical dosing advice.
-          </Text>
-        </View>
-      </ScrollView>
+          {activeTab === 'table' && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>
+                UNIT-BY-UNIT TITRATION REFERENCE TABLE
+              </Text>
+              <Text style={styles.helperText}>
+                Current Mix: {parseLocaleNumber(vialMassStr)} mg in{' '}
+                {parseLocaleNumber(diluentVolumeStr)} mL (
+                {calcResult.concentrationMgPerMl.toFixed(2)} mg/mL) on{' '}
+                {selectedSyringe.label}
+              </Text>
+
+              {/* Active Syringe Selector Inside Unit Chart */}
+              <View style={[styles.chipRow, { marginBottom: 12 }]}>
+                {SYRINGE_PRESETS.map((preset, idx) => {
+                  const selected = idx === syringePresetIndex;
+                  return (
+                    <TouchableOpacity
+                      key={preset.label}
+                      onPress={() => setSyringePresetIndex(idx)}
+                      style={[
+                        styles.quickChip,
+                        selected && styles.chipSelected,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.chipText,
+                          selected && styles.chipTextSelected,
+                        ]}
+                      >
+                        {preset.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {!calcResult.isValidInput ? (
+                <Text style={styles.blendSummaryText}>
+                  Enter a valid Vial Mass (&gt; 0 mg) and Diluent Volume (&gt; 0
+                  mL) in the Syringe Calc tab to populate the titration chart.
+                </Text>
+              ) : (
+                <>
+                  <View style={styles.tableHeader}>
+                    <Text style={styles.tableHeaderCell}>Syringe Units</Text>
+                    <Text style={styles.tableHeaderCell}>Volume (mL)</Text>
+                    <Text style={styles.tableHeaderCell}>Mass (mcg)</Text>
+                    <Text style={styles.tableHeaderCell}>Mass (mg)</Text>
+                  </View>
+
+                  {[
+                    1, 2, 2.5, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 75,
+                    100,
+                  ]
+                    .filter((u) => u <= selectedSyringe.maxUnits)
+                    .map((u, idx) => {
+                      const lockedRow = !isPro && idx >= 4;
+                      const volMl =
+                        u / SCALE_UNITS_PER_ML[selectedSyringe.scale];
+                      const mcg = roundClean(u * calcResult.mcgPerUnit, 1);
+                      const mg = roundClean(mcg / 1000, 3);
+                      return (
+                        <TouchableOpacity
+                          key={u}
+                          disabled={!lockedRow}
+                          onPress={() =>
+                            openPaywall('Full Unit Reference Table')
+                          }
+                          style={[
+                            styles.tableRow,
+                            idx % 2 === 1 && styles.tableRowAlt,
+                          ]}
+                        >
+                          <Text style={styles.tableCellBold}>{u} u</Text>
+                          <Text style={styles.tableCell}>
+                            {volMl.toFixed(3)} mL
+                          </Text>
+                          <Text style={styles.tableCell}>
+                            {lockedRow ? '🔒 Pro' : `${mcg} mcg`}
+                          </Text>
+                          <Text style={styles.tableCell}>
+                            {lockedRow ? '🔒 Pro' : `${mg.toFixed(3)} mg`}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                </>
+              )}
+            </View>
+          )}
+
+          {/* Mandatory Apple Guideline 1.4.1 Safe Laboratory Disclaimer Footer */}
+          <View style={styles.disclaimerFooter}>
+            <Text style={styles.disclaimerFooterText}>
+              LABORATORY & EDUCATIONAL UTILITY: PepCalc performs mathematical
+              volumetric concentration conversions (C₁V₁ = C₂V₂). Not intended
+              for clinical or medical dosing advice.
+            </Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* First-Launch Laboratory Disclaimer Modal (Ensures 1st-Try App Store Approval) */}
       {!disclaimerAccepted && (

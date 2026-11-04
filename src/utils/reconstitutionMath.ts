@@ -96,12 +96,30 @@ export const SCALE_UNITS_PER_ML: Record<SyringeScale, number> = {
 /**
  * Safely parses numeric input strings from both US/UK (dot decimal "2.5")
  * and European/Swedish (comma decimal "2,5") keyboards.
+ * Also handles space-separated thousands ("1 000" -> 1000) and rejects
+ * malformed multi-dot/comma inputs ("2.5.5" or "1,000" thousands ambiguity if invalid).
  * Rejects NaN, Infinity, and negative values.
  */
 export function parseLocaleNumber(raw: string): number {
   if (!raw || typeof raw !== 'string') return 0;
-  const normalized = raw.trim().replace(/,/g, '.');
-  const parsed = Number.parseFloat(normalized);
+  // Strip internal/external spaces (e.g. "1 000" -> "1000")
+  const compact = raw.trim().replace(/\s+/g, '');
+  if (!compact) return 0;
+
+  // If string contains BOTH dot and comma (e.g. "1,000.5" or "1.000,5"), reject as ambiguous
+  if (compact.includes('.') && compact.includes(',')) {
+    return 0;
+  }
+
+  // Normalize comma to dot
+  const normalized = compact.replace(/,/g, '.');
+
+  // Strict numeric check: at most one decimal point, digits required
+  if (!/^(?:\d+\.?\d*|\.\d+)$/.test(normalized)) {
+    return 0;
+  }
+
+  const parsed = Number(normalized);
   if (!Number.isFinite(parsed) || parsed < 0) {
     return 0;
   }
@@ -160,15 +178,16 @@ export function calculateReconstitution(
     };
   }
 
-  const concentrationMgPerMl = roundClean(vialMg / diluentMl, 6);
-  const concentrationMcgPerMl = roundClean(concentrationMgPerMl * 1000, 4);
+  const rawConcentrationMgPerMl = vialMg / diluentMl;
+  const concentrationMgPerMl = roundClean(rawConcentrationMgPerMl, 6);
+  const concentrationMcgPerMl = roundClean(rawConcentrationMgPerMl * 1000, 4);
 
-  const volumeToDrawMl =
-    concentrationMgPerMl > 0
-      ? roundClean(targetDoseMg / concentrationMgPerMl, 6)
-      : 0;
+  // Compute exact draw volume directly from unrounded ratio to avoid intermediate rounding drift
+  const rawVolumeToDrawMl =
+    vialMg > 0 ? (targetDoseMg * diluentMl) / vialMg : 0;
+  const volumeToDrawMl = roundClean(rawVolumeToDrawMl, 6);
 
-  const syringeUnits = roundClean(volumeToDrawMl * unitsPerMl, 4);
+  const syringeUnits = roundClean(rawVolumeToDrawMl * unitsPerMl, 4);
 
   const fillPercentage =
     maxSyringeUnits > 0
@@ -179,7 +198,9 @@ export function calculateReconstitution(
     targetDoseMg > 0 ? roundClean(vialMg / targetDoseMg, 2) : 0;
 
   const mcgPerUnit =
-    unitsPerMl > 0 ? roundClean(concentrationMcgPerMl / unitsPerMl, 4) : 0;
+    unitsPerMl > 0
+      ? roundClean((rawConcentrationMgPerMl * 1000) / unitsPerMl, 4)
+      : 0;
 
   const exceedsSyringeCapacity = syringeUnits > maxSyringeUnits + 1e-6;
   const exceedsVialMass = targetDoseMg > vialMg + 1e-6;
@@ -226,19 +247,25 @@ export function calculateBlendReconstitution(
   const safeSecondaryMg =
     Number.isFinite(secondaryMg) && secondaryMg > 0 ? secondaryMg : 0;
 
+  const isBlendValid = primaryResult.isValidInput && safeSecondaryMg > 0;
+
   const secondaryConcentrationMcgPerMl =
-    primaryResult.isValidInput && diluentMl > 0
+    isBlendValid && diluentMl > 0
       ? roundClean((safeSecondaryMg * 1000) / diluentMl, 4)
       : 0;
-  const secondaryDeliveredMcg = primaryResult.isValidInput
-    ? roundClean(
-        primaryResult.volumeToDrawMl * secondaryConcentrationMcgPerMl,
-        4
-      )
-    : 0;
+
+  // Compute secondary compound delivered from exact mass ratio to eliminate intermediate diluent rounding drift
+  const secondaryDeliveredMcg =
+    isBlendValid && primaryMg > 0
+      ? roundClean(
+          primaryResult.targetDoseMcg * (safeSecondaryMg / primaryMg),
+          4
+        )
+      : 0;
 
   return {
     ...primaryResult,
+    isValidInput: isBlendValid,
     secondaryConcentrationMcgPerMl,
     secondaryDeliveredMcg,
   };
