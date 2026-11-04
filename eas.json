@@ -12,7 +12,8 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "credentialsSource": "local"
     }
   },
   "submit": {
@@ -20,7 +21,10 @@
       "ios": {
         "appleId": "thomas@thomasaldrin.com",
         "ascAppId": "6830870340",
-        "appleTeamId": "74XR834VF4"
+        "appleTeamId": "74XR834VF4",
+        "ascApiKeyPath": "/Users/thomasaldrin/.gemini/config/asc/AuthKey_72SDNZ868F.p8",
+        "ascApiKeyIssuerId": "ed9b464b-285a-4a07-8235-a4343cbe21eb",
+        "ascApiKeyId": "72SDNZ868F"
       },
       "android": {
         "track": "production"

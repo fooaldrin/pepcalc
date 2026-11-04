@@ -13,3 +13,7 @@ push_gh.sh
 asc_*.py
 check_urls.py
 set_age.py
+generate_ios_creds.py
+creds/
+credentials.json
+screenshots/
