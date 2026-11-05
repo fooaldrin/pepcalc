@@ -12,15 +12,15 @@
 ## 2. Hybrid RevenueCat / StoreKit 2 Product IDs to Create in App Store Connect
 1. **Lifetime Non-Consumable (Anchor / Hero Plan):**
    - Product ID: `com.thomasaldrin.pepcalc.lifetime`
-   - Price: **$24.99** (or **$19.99** launch promo)
+   - Price: **$99.99**
    - Display Name: `PepCalc Pro Lab (Lifetime Unlock)`
 2. **Annual Auto-Renewable Subscription:**
    - Product ID: `com.thomasaldrin.pepcalc.annual`
-   - Price: **$14.99 / year** with **3-Day Free Trial**
+   - Price: **$29.99 / year** with **3-Day Free Trial**
    - Display Name: `PepCalc Pro Annual Pass`
 3. **Monthly Auto-Renewable Subscription:**
    - Product ID: `com.thomasaldrin.pepcalc.monthly`
-   - Price: **$2.99 / month**
+   - Price: **$4.99 / month**
    - Display Name: `PepCalc Pro Monthly`
 
 ## 3. How This Build Passes Apple App Store Review on Try #1

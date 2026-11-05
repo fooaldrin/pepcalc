@@ -29,14 +29,14 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
   onRestorePurchases,
   triggerFeatureName,
 }) => {
-  const [selectedTier, setSelectedTier] = useState<PlanTier>('lifetime');
+  const [selectedTier, setSelectedTier] = useState<PlanTier>('annual');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [localizedPrices, setLocalizedPrices] = useState<
     Record<PlanTier, string>
   >({
-    lifetime: '$24.99',
-    annual: '$14.99',
-    monthly: '$2.99',
+    lifetime: '$99.99',
+    annual: '$29.99',
+    monthly: '$4.99',
   });
 
   useEffect(() => {
@@ -96,15 +96,15 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
       price: localizedPrices.lifetime,
       period: 'ONE-TIME',
       badge: 'PERPETUAL LICENSE • NO SUBSCRIPTION',
-      highlight: true,
     },
     {
       id: 'annual',
       title: 'Annual Laboratory License',
-      subtitle: 'Includes 3-day evaluation period • Billed annually',
+      subtitle: 'Includes 3-day evaluation period • Equivalent to $2.50/mo',
       price: localizedPrices.annual,
       period: '/ YEAR',
-      badge: 'ANNUAL • SAVE 58%',
+      badge: 'RECOMMENDED • SAVE 50%',
+      highlight: true,
     },
     {
       id: 'monthly',
