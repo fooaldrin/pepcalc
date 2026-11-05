@@ -91,25 +91,25 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
   }[] = [
     {
       id: 'lifetime',
-      title: 'Lifetime Lab Unlock',
-      subtitle: 'Pay once, own forever — zero recurring fees',
+      title: 'Perpetual Instrument License',
+      subtitle: 'Single non-recurring purchase • Permanent local entitlement',
       price: localizedPrices.lifetime,
       period: 'ONE-TIME',
-      badge: 'MOST POPULAR • NO SUBSCRIPTION',
+      badge: 'PERPETUAL LICENSE • NO SUBSCRIPTION',
       highlight: true,
     },
     {
       id: 'annual',
-      title: 'Annual Pro Pass',
-      subtitle: '3-Day Free Trial • Best value annual plan',
+      title: 'Annual Laboratory License',
+      subtitle: 'Includes 3-day evaluation period • Billed annually',
       price: localizedPrices.annual,
       period: '/ YEAR',
-      badge: 'SAVE 58%',
+      badge: 'ANNUAL • SAVE 58%',
     },
     {
       id: 'monthly',
-      title: 'Monthly Flex',
-      subtitle: 'Cancel anytime in 1 tap',
+      title: 'Monthly Laboratory License',
+      subtitle: 'Standard monthly billing cycle • Cancel anytime',
       price: localizedPrices.monthly,
       period: '/ MONTH',
     },
@@ -117,24 +117,24 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
 
   const proBenefits = [
     {
-      icon: '🧪',
-      title: 'Multi-Compound Blend Calculator',
-      desc: 'Calculate dual-vial ratios (e.g., Compound A + Compound B in a single syringe draw) with zero math errors.',
+      icon: 'DUAL',
+      title: 'Co-Lyophilized Dual-Solute Blend Calculator',
+      desc: 'Compute exact syringe graduations and proportional secondary solute mass (µg) when two compounds share a single vial.',
     },
     {
-      icon: '❄️',
-      title: 'Unlimited Vial Fridge Inventory & Expiry Tracker',
-      desc: 'Track remaining mL per reconstituted vial, reconstitution ISO dates, and 28-day shelf-life alerts.',
+      icon: 'LOG',
+      title: 'Unlimited Reconstituted Vial Logbook & Stability Tracking',
+      desc: 'Record aliquot draws, remaining solution volume (mL), ISO reconstitution dates, and 28-day post-reconstitution stability windows.',
     },
     {
-      icon: '📊',
-      title: 'Reverse Titration & Micro-Dose Table',
-      desc: 'Instant unit-by-unit reference table for every tick mark on 0.3 mL, 0.5 mL, and 1.0 mL syringes.',
+      icon: 'TABLE',
+      title: 'Complete Unit-to-Mass Titration Schedule',
+      desc: 'Full graduation reference table mapping every unit division on 0.3 mL, 0.5 mL, and 1.0 mL barrels to exact mL, µg, and mg values.',
     },
     {
-      icon: '🚫',
-      title: '100% Ad-Free & Offline Privacy',
-      desc: 'All saved protocols stay encrypted locally on your device. No account or cloud login ever required.',
+      icon: 'LOCAL',
+      title: 'Offline On-Device Data Architecture',
+      desc: 'All saved dilution protocols and vial ledgers reside strictly in local device storage with zero external telemetry.',
     },
   ];
 
@@ -149,7 +149,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
         <View style={styles.sheet}>
           <View style={styles.topBar}>
             <View style={styles.proPill}>
-              <Text style={styles.proPillText}>PEPCALC PRO LAB</Text>
+              <Text style={styles.proPillText}>PEPCALC PRO EDITION</Text>
             </View>
             <TouchableOpacity
               onPress={onClose}
@@ -171,12 +171,12 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
               resizeMode="cover"
             />
             <Text style={styles.headline}>
-              Eliminate Reconstitution Math Errors Forever
+              PepCalc Pro Laboratory Edition
             </Text>
             <Text style={styles.subheadline}>
               {triggerFeatureName
-                ? `Unlock ${triggerFeatureName} plus unlimited saved vials & multi-compound blend math.`
-                : 'Protect expensive vials with precision volumetric tools, blend calculators, and fridge inventory tracking.'}
+                ? `Enable ${triggerFeatureName}, co-lyophilized dual-solute blend calculations, and unlimited reconstituted vial logbook entries.`
+                : 'Full access to co-lyophilized dual-solute blend calculations, complete unit-to-mass titration schedules, and unlimited vial logbook tracking.'}
             </Text>
 
             <View style={styles.benefitsContainer}>
@@ -243,14 +243,14 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
               onPress={handlePressPurchase}
             >
               {isSubmitting ? (
-                <ActivityIndicator color="#020617" />
+                <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text style={styles.ctaButtonText}>
                   {selectedTier === 'lifetime'
-                    ? `Unlock Lifetime Pro (${localizedPrices.lifetime} Once)`
+                    ? `Activate Perpetual License (${localizedPrices.lifetime} Once)`
                     : selectedTier === 'annual'
-                    ? `Start 3-Day Free Trial (${localizedPrices.annual}/yr)`
-                    : `Continue with Monthly (${localizedPrices.monthly}/mo)`}
+                    ? `Begin 3-Day Evaluation (${localizedPrices.annual}/yr)`
+                    : `Activate Monthly License (${localizedPrices.monthly}/mo)`}
                 </Text>
               )}
             </TouchableOpacity>
@@ -297,16 +297,16 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(2, 6, 23, 0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#0F172A',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
     maxHeight: '92%',
     borderTopWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#E2E8F0',
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 28,
@@ -318,29 +318,31 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   proPill: {
-    backgroundColor: 'rgba(34, 211, 238, 0.15)',
+    backgroundColor: '#E0F2FE',
     borderWidth: 1,
-    borderColor: '#22D3EE',
+    borderColor: '#7DD3FC',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
   },
   proPillText: {
-    color: '#22D3EE',
+    color: '#0369A1',
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 1,
+    letterSpacing: 0.9,
   },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#1E293B',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   closeBtnText: {
-    color: '#94A3B8',
+    color: '#475569',
     fontSize: 15,
     fontWeight: '700',
   },
@@ -349,89 +351,100 @@ const styles = StyleSheet.create({
   },
   heroBanner: {
     width: '100%',
-    height: 120,
-    borderRadius: 16,
+    height: 116,
+    borderRadius: 14,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#CBD5E1',
   },
   headline: {
-    color: '#F8FAFC',
-    fontSize: 24,
+    color: '#0F172A',
+    fontSize: 22,
     fontWeight: '800',
-    lineHeight: 30,
+    lineHeight: 28,
     marginBottom: 6,
   },
   subheadline: {
-    color: '#94A3B8',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 18,
+    color: '#475569',
+    fontSize: 13.5,
+    lineHeight: 19,
+    marginBottom: 16,
   },
   benefitsContainer: {
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 18,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 13,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#E2E8F0',
   },
   benefitRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 11,
   },
   benefitIcon: {
-    fontSize: 20,
-    marginRight: 12,
-    marginTop: 2,
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#0369A1',
+    backgroundColor: '#E0F2FE',
+    borderWidth: 1,
+    borderColor: '#7DD3FC',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 5,
+    minWidth: 46,
+    textAlign: 'center',
+    marginRight: 10,
+    marginTop: 1,
+    overflow: 'hidden',
   },
   benefitTextCol: {
     flex: 1,
   },
   benefitTitle: {
-    color: '#F1F5F9',
-    fontSize: 14,
+    color: '#0F172A',
+    fontSize: 13.5,
     fontWeight: '700',
     marginBottom: 2,
   },
   benefitDesc: {
-    color: '#94A3B8',
+    color: '#475569',
     fontSize: 12,
     lineHeight: 17,
   },
   plansContainer: {
-    gap: 12,
-    marginBottom: 18,
+    gap: 10,
+    marginBottom: 16,
   },
   planCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 2,
-    borderColor: '#334155',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 13,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
     position: 'relative',
   },
   planCardSelected: {
-    borderColor: '#22D3EE',
-    backgroundColor: 'rgba(34, 211, 238, 0.08)',
+    borderColor: '#0284C7',
+    backgroundColor: '#F0F9FF',
   },
   planBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
-    marginBottom: 8,
+    marginBottom: 7,
   },
   planBadgeLifetime: {
-    backgroundColor: '#22D3EE',
+    backgroundColor: '#0284C7',
   },
   planBadgeSave: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#0D9488',
   },
   planBadgeText: {
-    color: '#020617',
-    fontSize: 10,
+    color: '#FFFFFF',
+    fontSize: 9.5,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
@@ -440,32 +453,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   radioOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 2,
-    borderColor: '#64748B',
+    borderColor: '#94A3B8',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 11,
   },
   radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#22D3EE',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#0284C7',
   },
   planInfoCol: {
     flex: 1,
     paddingRight: 8,
   },
   planTitle: {
-    color: '#F8FAFC',
-    fontSize: 16,
+    color: '#0F172A',
+    fontSize: 15,
     fontWeight: '700',
   },
   planSubtitle: {
-    color: '#94A3B8',
+    color: '#475569',
     fontSize: 12,
     marginTop: 2,
   },
@@ -473,28 +486,29 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   planPrice: {
-    color: '#F8FAFC',
-    fontSize: 18,
+    color: '#0F172A',
+    fontSize: 17,
     fontWeight: '800',
+    fontVariant: ['tabular-nums'],
   },
   planPeriod: {
-    color: '#94A3B8',
+    color: '#64748B',
     fontSize: 10,
     fontWeight: '700',
   },
   ctaButton: {
-    backgroundColor: '#22D3EE',
-    borderRadius: 14,
-    paddingVertical: 16,
+    backgroundColor: '#0284C7',
+    borderRadius: 12,
+    paddingVertical: 15,
     alignItems: 'center',
-    shadowColor: '#22D3EE',
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
+    shadowColor: '#0284C7',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
   },
   ctaButtonText: {
-    color: '#020617',
-    fontSize: 16,
+    color: '#FFFFFF',
+    fontSize: 15.5,
     fontWeight: '800',
   },
   legalNoticeText: {
@@ -512,12 +526,12 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   footerLinkText: {
-    color: '#64748B',
+    color: '#475569',
     fontSize: 12,
     fontWeight: '600',
   },
   footerDot: {
-    color: '#475569',
+    color: '#94A3B8',
     marginHorizontal: 8,
   },
 });

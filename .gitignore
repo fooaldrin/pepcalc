@@ -17,3 +17,5 @@ generate_ios_creds.py
 creds/
 credentials.json
 screenshots/
+/ios/
+/android/

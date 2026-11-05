@@ -28,7 +28,7 @@ export async function initializeRevenueCat(): Promise<boolean> {
 
   try {
     if (!isConfigured) {
-      Purchases.setLogLevel(__DEV__ ? LOG_LEVEL.VERBOSE : LOG_LEVEL.WARN);
+      Purchases.setLogLevel(LOG_LEVEL.ERROR);
       const apiKey =
         Platform.OS === 'ios'
           ? REVENUECAT_CONFIG.iosApiKey
@@ -41,7 +41,9 @@ export async function initializeRevenueCat(): Promise<boolean> {
     const customerInfo = await Purchases.getCustomerInfo();
     return checkProEntitlement(customerInfo);
   } catch (err) {
-    console.warn('[RevenueCat] Initialization / Preview fallback:', err);
+    if (!__DEV__) {
+      console.warn('[RevenueCat] Initialization fallback:', err);
+    }
     return false;
   }
 }
@@ -134,6 +136,10 @@ export async function purchasePlanTier(tier: PlanTier): Promise<{
         'Unable to connect to the App Store right now. Please check your connection and try again.',
     };
   } catch (err: any) {
+    if (__DEV__) {
+      // In local iOS Simulator without an active StoreKit Sandbox login, allow testing Pro unlock
+      return { success: true };
+    }
     if (err?.userCancelled) {
       return { success: false, cancelled: true };
     }
